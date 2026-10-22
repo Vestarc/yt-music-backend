@@ -30,9 +30,10 @@ def search(q: str):
     results = []
     seen_ids = set()
 
-    # Ищем только по защищенным от капч каталогам: SoundCloud и Bandcamp
+    # Ищем только по стабильным площадкам без блокировок
     search_queries = [
-        (f"scsearch60:{q}", "SoundCloud"),
+        (f"scsearch50:{q}", "SoundCloud"),
+        (f"scsearch50:{q} remix", "SoundCloud"),
         (f"bcsearch40:{q}", "Bandcamp")
     ]
 
@@ -97,7 +98,6 @@ def charts():
 
 @app.get("/stream/{video_id:path}")
 def stream(video_id: str):
-    # Прямая загрузка потока без обращения к YouTube
     target = video_id
 
     ydl_opts = {
@@ -117,4 +117,4 @@ def stream(video_id: str):
         
         return {"url": url}
     except Exception as e:
-        return {"error": str(e)}                                
+        return {"error": str(e)}
