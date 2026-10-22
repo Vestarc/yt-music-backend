@@ -36,7 +36,7 @@ def search(q: str):
     except Exception:
         pass
 
-    # 2. Spotify (через yt-dlp spsearch)
+    # 2. Spotify
     try:
         ydl_opts = {'extract_flat': True, 'quiet': True}
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -54,7 +54,7 @@ def search(q: str):
     except Exception:
         pass
 
-    # 3. Apple Music (через yt-dlp amsearch)
+    # 3. Apple Music
     try:
         ydl_opts = {'extract_flat': True, 'quiet': True}
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -99,14 +99,21 @@ def stream(video_id: str):
     else:
         target = f"https://music.youtube.com/watch?v={video_id}"
 
+    # Обход защиты YouTube с помощью имитации клиентов
     ydl_opts = {
         'format': 'bestaudio/best',
         'quiet': True,
         'noplaylist': True,
+        'extractor_args': {
+            'youtube': {
+                'player_client': ['android', 'web']
+            }
+        }
     }
+    
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(target, download=False)
+            info = yt_dlp.YoutubeDL(ydl_opts).extract_info(target, download=False)
             url = info.get('url')
         
         if not url:
@@ -115,4 +122,4 @@ def stream(video_id: str):
         return {"url": url}
     except Exception as e:
         return {"error": str(e)}
-        
+                
