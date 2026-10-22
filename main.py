@@ -30,11 +30,10 @@ def search(q: str):
     results = []
     seen_ids = set()
 
-    # Хардкорный мультипоточный поиск по нескольким индексам для обхода любых лимитов
-    search_queries = [
-        f"ytsearch50:{q} audio",
-        f"ytsearch30:{q} topic",
-        f"scsearch40:{q}"
+    # Мультипоточный поиск: SoundCloud и Яндекс Музыка
+    search_targets = [
+        f"scsearch50:{q}",
+        f"https://music.yandex.ru/search?text={q}"
     ]
 
     ydl_opts = {
@@ -45,24 +44,28 @@ def search(q: str):
     }
 
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        for query in search_queries:
+        for target in search_targets:
             try:
-                info = ydl.extract_info(query, download=False)
-                if info and 'entries' in info:
-                    for entry in info['entries']:
+                info = ydl.extract_info(target, download=False)
+                if info:
+                    entries = info.get('entries', [])
+                    if not entries and 'url' in info:
+                        entries = [info]
+
+                    for entry in entries:
                         if entry and entry.get('url'):
                             vid = entry.get('id') or entry.get('url')
                             if vid not in seen_ids:
                                 seen_ids.add(vid)
-                                source_name = "SoundCloud" if "scsearch" in query else "Global / Universal"
+                                source_name = "Yandex Music" if "yandex.ru" in target else "SoundCloud"
                                 results.append({
                                     "videoId": vid,
                                     "title": entry.get("title", "Unknown Title"),
-                                    "artists": [{"name": entry.get("uploader") or entry.get("artist") or "Various Artists"}],
+                                    "artists": [{"name": entry.get("uploader") or entry.get("artist") or entry.get("creator") or source_name}],
                                     "thumbnails": get_thumbnail(entry),
                                     "source": source_name
                                 })
-            except Exception:
+            except Exception as e:
                 continue
 
     return results
@@ -73,9 +76,10 @@ def charts():
     seen_ids = set()
     ydl_opts = {'extract_flat': True, 'quiet': True, 'ignoreerrors': True}
     
+    # Загрузка чартов из Яндекс Музыки
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info("ytsearch50:global top hits audio", download=False)
+            info = ydl.extract_info("https://music.yandex.ru/chart", download=False)
             if info and 'entries' in info:
                 for entry in info['entries']:
                     if entry and entry.get('url'):
@@ -85,12 +89,34 @@ def charts():
                             tracks.append({
                                 "videoId": vid,
                                 "title": entry.get("title", "Hit"),
-                                "artists": [{"name": entry.get("uploader") or "Global Charts"}],
+                                "artists": [{"name": entry.get("uploader") or entry.get("artist") or "Yandex Charts"}],
                                 "thumbnails": get_thumbnail(entry),
-                                "source": "Charts"
+                                "source": "Yandex Music"
                             })
     except Exception:
         pass
+
+    # Резервный источник (SoundCloud), если чарты Яндекса не ответили
+    if not tracks:
+        try:
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info("scsearch40:global top hits", download=False)
+                if info and 'entries' in info:
+                    for entry in info['entries']:
+                        if entry and entry.get('url'):
+                            vid = entry.get('id') or entry.get('url')
+                            if vid not in seen_ids:
+                                seen_ids.add(vid)
+                                tracks.append({
+                                    "videoId": vid,
+                                    "title": entry.get("title", "Hit"),
+                                    "artists": [{"name": entry.get("uploader") or "SoundCloud"}],
+                                    "thumbnails": get_thumbnail(entry),
+                                    "source": "SoundCloud"
+                                })
+        except Exception:
+            pass
+
     return tracks
 
 @app.get("/stream/{video_id:path}")
@@ -115,4 +141,4 @@ def stream(video_id: str):
         return {"url": url}
     except Exception as e:
         return {"error": str(e)}
-                        
+        
