@@ -23,85 +23,72 @@ def get_thumbnail(entry):
 
 @app.get("/")
 def root():
-    return {"status": "Backend is running!"}
+    return {"status": "YouMusic Core Engine Running"}
 
 @app.get("/search")
 def search(q: str):
     results = []
+    seen_ids = set()
 
-    # 1. Spotify
-    try:
-        ydl_opts = {'extract_flat': True, 'quiet': True}
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            sp_info = ydl.extract_info(f"spsearch25:{q}", download=False)
-            if sp_info and 'entries' in sp_info:
-                for entry in sp_info['entries']:
-                    if entry and entry.get('url'):
-                        results.append({
-                            "videoId": entry.get('url'),
-                            "title": entry.get("title"),
-                            "artists": [{"name": entry.get("uploader") or entry.get("artist") or "Spotify"}],
-                            "thumbnails": get_thumbnail(entry),
-                            "source": "Spotify"
-                        })
-    except Exception:
-        pass
+    # Хардкорный мультипоточный поиск по нескольким индексам для обхода любых лимитов
+    search_queries = [
+        f"ytsearch50:{q} audio",
+        f"ytsearch30:{q} topic",
+        f"scsearch40:{q}"
+    ]
 
-    # 2. Apple Music
-    try:
-        ydl_opts = {'extract_flat': True, 'quiet': True}
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            am_info = ydl.extract_info(f"amsearch25:{q}", download=False)
-            if am_info and 'entries' in am_info:
-                for entry in am_info['entries']:
-                    if entry and entry.get('url'):
-                        results.append({
-                            "videoId": entry.get('url'),
-                            "title": entry.get("title"),
-                            "artists": [{"name": entry.get("uploader") or "Apple Music"}],
-                            "thumbnails": get_thumbnail(entry),
-                            "source": "Apple Music"
-                        })
-    except Exception:
-        pass
+    ydl_opts = {
+        'extract_flat': True,
+        'quiet': True,
+        'no_warnings': True,
+        'ignoreerrors': True
+    }
 
-    # 3. SoundCloud
-    try:
-        ydl_opts = {'extract_flat': True, 'quiet': True}
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            sc_info = ydl.extract_info(f"scsearch25:{q}", download=False)
-            if sc_info and 'entries' in sc_info:
-                for entry in sc_info['entries']:
-                    if entry and entry.get('url'):
-                        results.append({
-                            "videoId": entry.get('url'),
-                            "title": entry.get("title"),
-                            "artists": [{"name": entry.get("uploader") or "SoundCloud"}],
-                            "thumbnails": get_thumbnail(entry),
-                            "source": "SoundCloud"
-                        })
-    except Exception:
-        pass
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        for query in search_queries:
+            try:
+                info = ydl.extract_info(query, download=False)
+                if info and 'entries' in info:
+                    for entry in info['entries']:
+                        if entry and entry.get('url'):
+                            vid = entry.get('id') or entry.get('url')
+                            if vid not in seen_ids:
+                                seen_ids.add(vid)
+                                source_name = "SoundCloud" if "scsearch" in query else "Global / Universal"
+                                results.append({
+                                    "videoId": vid,
+                                    "title": entry.get("title", "Unknown Title"),
+                                    "artists": [{"name": entry.get("uploader") or entry.get("artist") or "Various Artists"}],
+                                    "thumbnails": get_thumbnail(entry),
+                                    "source": source_name
+                                })
+            except Exception:
+                continue
 
     return results
 
 @app.get("/charts")
 def charts():
     tracks = []
+    seen_ids = set()
+    ydl_opts = {'extract_flat': True, 'quiet': True, 'ignoreerrors': True}
+    
     try:
-        ydl_opts = {'extract_flat': True, 'quiet': True}
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info("spsearch30:global top hits", download=False)
+            info = ydl.extract_info("ytsearch50:global top hits audio", download=False)
             if info and 'entries' in info:
                 for entry in info['entries']:
                     if entry and entry.get('url'):
-                        tracks.append({
-                            "videoId": entry.get('url'),
-                            "title": entry.get("title"),
-                            "artists": [{"name": entry.get("uploader") or entry.get("artist") or "Spotify"}],
-                            "thumbnails": get_thumbnail(entry),
-                            "source": "Spotify"
-                        })
+                        vid = entry.get('id') or entry.get('url')
+                        if vid not in seen_ids:
+                            seen_ids.add(vid)
+                            tracks.append({
+                                "videoId": vid,
+                                "title": entry.get("title", "Hit"),
+                                "artists": [{"name": entry.get("uploader") or "Global Charts"}],
+                                "thumbnails": get_thumbnail(entry),
+                                "source": "Charts"
+                            })
     except Exception:
         pass
     return tracks
@@ -114,6 +101,7 @@ def stream(video_id: str):
         'format': 'bestaudio/best',
         'quiet': True,
         'noplaylist': True,
+        'no_warnings': True,
     }
     
     try:
@@ -127,3 +115,4 @@ def stream(video_id: str):
         return {"url": url}
     except Exception as e:
         return {"error": str(e)}
+                        
