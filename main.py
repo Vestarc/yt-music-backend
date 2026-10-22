@@ -15,6 +15,18 @@ app.add_middleware(
 
 yt = YTMusic()
 
+def get_thumbnail(entry):
+    """Безопасное извлечение обложки с запасным вариантом (плейсхолдером)"""
+    thumb = entry.get("thumbnail")
+    if not thumb and entry.get("thumbnails"):
+        thumbs = entry.get("thumbnails")
+        if isinstance(thumbs, list) and len(thumbs) > 0:
+            thumb = thumbs[-1].get("url")
+    if not thumb:
+        # Стильная заглушка, если обложка у трека отсутствует
+        thumb = "https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=150&auto=format&fit=crop&q=80"
+    return [{"url": thumb}]
+
 @app.get("/")
 def root():
     return {"status": "Backend is running!"}
@@ -31,7 +43,7 @@ def search(q: str):
                 "videoId": item.get("videoId"),
                 "title": item.get("title"),
                 "artists": item.get("artists", []),
-                "thumbnails": item.get("thumbnails", []),
+                "thumbnails": item.get("thumbnails", [ {"url": "https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=150&auto=format&fit=crop&q=80"} ]),
                 "source": "YouTube"
             })
     except Exception:
@@ -49,7 +61,7 @@ def search(q: str):
                             "videoId": entry.get('url'),
                             "title": entry.get("title"),
                             "artists": [{"name": entry.get("uploader") or entry.get("artist") or "Spotify"}],
-                            "thumbnails": [{"url": entry.get("thumbnail") or ""}],
+                            "thumbnails": get_thumbnail(entry),
                             "source": "Spotify"
                         })
     except Exception:
@@ -67,7 +79,7 @@ def search(q: str):
                             "videoId": entry.get('url'),
                             "title": entry.get("title"),
                             "artists": [{"name": entry.get("uploader") or "Apple Music"}],
-                            "thumbnails": [{"url": entry.get("thumbnail") or ""}],
+                            "thumbnails": get_thumbnail(entry),
                             "source": "Apple Music"
                         })
     except Exception:
@@ -85,7 +97,7 @@ def search(q: str):
                             "videoId": entry.get('url'),
                             "title": entry.get("title"),
                             "artists": [{"name": entry.get("uploader") or "SoundCloud"}],
-                            "thumbnails": [{"url": entry.get("thumbnail") or ""}],
+                            "thumbnails": get_thumbnail(entry),
                             "source": "SoundCloud"
                         })
     except Exception:
@@ -111,24 +123,27 @@ def stream(video_id: str):
         except Exception as e:
             return {"error": str(e)}
 
-    # Если это трек с YouTube — получаем поток через публичные защищенные шлюзы (обход капчи)
-    piped_instances = [
-        "https://pipedapi.kavin.rocks",
-        "https://pipedapi.tokhmi.xyz",
-        "https://pipedapi.privacy.com.de"
-    ]
-    
-    for instance in piped_instances:
-        try:
-            res = requests.get(f"{instance}/streams/{video_id}", timeout=5)
-            if res.status_code == 200:
-                data = res.json()
-                audio_streams = data.get("audioStreams", [])
-                if audio_streams:
-                    best_stream = max(audio_streams, key=lambda x: x.get("bitrate", 0))
-                    return {"url": best_stream.get("url")}
-        except Exception:
-            continue
+    # Получение потока с YouTube через Cobalt API
+    yt_url = f"https://www.youtube.com/watch?v={video_id}"
+    payload = {
+        "url": yt_url,
+        "isAudioOnly": True
+    }
+    headers = {
+        "Accept": "application/json",
+        "Content-Type": "application/json"
+    }
+
+    try:
+        response = requests.post("https://api.cobalt.tools/api/json", json=payload, headers=headers, timeout=10)
+        if response.status_code == 200:
+            data = response.json()
+            if "url" in data:
+                return {"url": data["url"]}
+            elif "picker" in data and len(data["picker"]) > 0:
+                return {"url": data["picker"][0]["url"]}
+    except Exception as e:
+        print("Cobalt error:", e)
 
     return {"error": "Не удалось получить аудиопоток с YouTube"}
     
