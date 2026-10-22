@@ -30,11 +30,11 @@ def search(q: str):
     results = []
     seen_ids = set()
 
-    # Мощный мультипоточный поиск по глобальным каталогам и SoundCloud
+    # Надежные площадки без Яндекса: SoundCloud, Bandcamp и глобальная библиотека
     search_queries = [
-        f"ytsearch40:{q} audio",
-        f"ytsearch30:{q} topic",
-        f"scsearch30:{q}"
+        ("scsearch40:" + q, "SoundCloud"),
+        ("bcsearch30:" + q, "Bandcamp"),
+        ("ytsearch40:" + q + " audio", "Global Library")
     ]
 
     ydl_opts = {
@@ -46,23 +46,22 @@ def search(q: str):
     }
 
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        for query in search_queries:
+        for query, source_type in search_queries:
             try:
                 info = ydl.extract_info(query, download=False)
                 if info and 'entries' in info:
                     for entry in info['entries']:
-                        if entry and entry.get('url'):
-                            vid = entry.get('id') or entry.get('url')
-                            # Фильтруем мусорные или невалидные идентификаторы
+                        if entry:
+                            # Для SoundCloud и Bandcamp берем строго полный URL, чтобы избежать ошибок с ID
+                            vid = entry.get('url') if source_type in ["SoundCloud", "Bandcamp"] else (entry.get('id') or entry.get('url'))
                             if vid and str(vid) not in seen_ids:
                                 seen_ids.add(str(vid))
-                                source = "SoundCloud" if "scsearch" in query else "Global Library"
                                 results.append({
                                     "videoId": vid,
                                     "title": entry.get("title", "Unknown Title"),
-                                    "artists": [{"name": entry.get("uploader") or entry.get("artist") or "Various Artists"}],
+                                    "artists": [{"name": entry.get("uploader") or entry.get("artist") or source_type}],
                                     "thumbnails": get_thumbnail(entry),
-                                    "source": source
+                                    "source": source_type
                                 })
             except Exception:
                 continue
@@ -102,7 +101,7 @@ def charts():
 
 @app.get("/stream/{video_id:path}")
 def stream(video_id: str):
-    # Если передан полноценный URL (например, SoundCloud), используем его, иначе формируем безопасный запрос
+    # Если передан полноценный URL (SoundCloud, Bandcamp или прямая ссылка), используем его напрямую
     if video_id.startswith("http"):
         target = video_id
     else:
@@ -127,4 +126,4 @@ def stream(video_id: str):
         return {"url": url}
     except Exception as e:
         return {"error": str(e)}
-        
+            
