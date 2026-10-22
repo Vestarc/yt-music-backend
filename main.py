@@ -30,17 +30,18 @@ def search(q: str):
     results = []
     seen_ids = set()
 
-    # Мультипоточный поиск: SoundCloud и Яндекс Музыка
     search_targets = [
         f"scsearch50:{q}",
-        f"https://music.yandex.ru/search?text={q}"
+        f"https://music.yandex.ru/search?text={q}",
+        f"ytsearch30:{q} audio"
     ]
 
     ydl_opts = {
         'extract_flat': True,
         'quiet': True,
         'no_warnings': True,
-        'ignoreerrors': True
+        'ignoreerrors': True,
+        'extractor_args': {'youtube': {'player_client': ['android']}}
     }
 
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -57,7 +58,13 @@ def search(q: str):
                             vid = entry.get('id') or entry.get('url')
                             if vid not in seen_ids:
                                 seen_ids.add(vid)
-                                source_name = "Yandex Music" if "yandex.ru" in target else "SoundCloud"
+                                if "yandex.ru" in target:
+                                    source_name = "Yandex Music"
+                                elif "scsearch" in target:
+                                    source_name = "SoundCloud"
+                                else:
+                                    source_name = "YouTube / Global"
+                                
                                 results.append({
                                     "videoId": vid,
                                     "title": entry.get("title", "Unknown Title"),
@@ -65,7 +72,7 @@ def search(q: str):
                                     "thumbnails": get_thumbnail(entry),
                                     "source": source_name
                                 })
-            except Exception as e:
+            except Exception:
                 continue
 
     return results
@@ -74,9 +81,13 @@ def search(q: str):
 def charts():
     tracks = []
     seen_ids = set()
-    ydl_opts = {'extract_flat': True, 'quiet': True, 'ignoreerrors': True}
+    ydl_opts = {
+        'extract_flat': True, 
+        'quiet': True, 
+        'ignoreerrors': True,
+        'extractor_args': {'youtube': {'player_client': ['android']}}
+    }
     
-    # Загрузка чартов из Яндекс Музыки
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info("https://music.yandex.ru/chart", download=False)
@@ -96,11 +107,10 @@ def charts():
     except Exception:
         pass
 
-    # Резервный источник (SoundCloud), если чарты Яндекса не ответили
     if not tracks:
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info("scsearch40:global top hits", download=False)
+                info = ydl.extract_info("ytsearch30:global top hits audio", download=False)
                 if info and 'entries' in info:
                     for entry in info['entries']:
                         if entry and entry.get('url'):
@@ -110,9 +120,9 @@ def charts():
                                 tracks.append({
                                     "videoId": vid,
                                     "title": entry.get("title", "Hit"),
-                                    "artists": [{"name": entry.get("uploader") or "SoundCloud"}],
+                                    "artists": [{"name": entry.get("uploader") or entry.get("artist") or "Global"}],
                                     "thumbnails": get_thumbnail(entry),
-                                    "source": "SoundCloud"
+                                    "source": "YouTube / Global"
                                 })
         except Exception:
             pass
@@ -128,6 +138,7 @@ def stream(video_id: str):
         'quiet': True,
         'noplaylist': True,
         'no_warnings': True,
+        'extractor_args': {'youtube': {'player_client': ['android']}}
     }
     
     try:
@@ -141,4 +152,4 @@ def stream(video_id: str):
         return {"url": url}
     except Exception as e:
         return {"error": str(e)}
-        
+                            
