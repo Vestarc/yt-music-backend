@@ -29,11 +29,11 @@ def root():
 def search(q: str):
     results = []
 
-    # 1. Spotify (основной каталог)
+    # 1. Spotify
     try:
         ydl_opts = {'extract_flat': True, 'quiet': True}
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            sp_info = ydl.extract_info(f"spsearch20:{q}", download=False)
+            sp_info = ydl.extract_info(f"spsearch25:{q}", download=False)
             if sp_info and 'entries' in sp_info:
                 for entry in sp_info['entries']:
                     if entry and entry.get('url'):
@@ -51,7 +51,7 @@ def search(q: str):
     try:
         ydl_opts = {'extract_flat': True, 'quiet': True}
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            am_info = ydl.extract_info(f"amsearch15:{q}", download=False)
+            am_info = ydl.extract_info(f"amsearch25:{q}", download=False)
             if am_info and 'entries' in am_info:
                 for entry in am_info['entries']:
                     if entry and entry.get('url'):
@@ -69,7 +69,7 @@ def search(q: str):
     try:
         ydl_opts = {'extract_flat': True, 'quiet': True}
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            sc_info = ydl.extract_info(f"scsearch15:{q}", download=False)
+            sc_info = ydl.extract_info(f"scsearch25:{q}", download=False)
             if sc_info and 'entries' in sc_info:
                 for entry in sc_info['entries']:
                     if entry and entry.get('url'):
@@ -87,12 +87,11 @@ def search(q: str):
 
 @app.get("/charts")
 def charts():
-    # Чарты на основе глобальных хитов Spotify
+    tracks = []
     try:
         ydl_opts = {'extract_flat': True, 'quiet': True}
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info("spsearch25:global top hits", download=False)
-            tracks = []
+            info = ydl.extract_info("spsearch30:global top hits", download=False)
             if info and 'entries' in info:
                 for entry in info['entries']:
                     if entry and entry.get('url'):
@@ -103,37 +102,12 @@ def charts():
                             "thumbnails": get_thumbnail(entry),
                             "source": "Spotify"
                         })
-            if tracks:
-                return tracks
     except Exception:
         pass
-    
-    # Запасной вариант через SoundCloud
-    try:
-        ydl_opts = {'extract_flat': True, 'quiet': True}
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info("scsearch20:pop hits", download=False)
-            tracks = []
-            if info and 'entries' in info:
-                for entry in info['entries']:
-                    if entry and entry.get('url'):
-                        tracks.append({
-                            "videoId": entry.get('url'),
-                            "title": entry.get("title"),
-                            "artists": [{"name": entry.get("uploader") or "SoundCloud"}],
-                            "thumbnails": get_thumbnail(entry),
-                            "source": "SoundCloud"
-                        })
-            if tracks:
-                return tracks
-    except Exception:
-        pass
-
-    return []
+    return tracks
 
 @app.get("/stream/{video_id:path}")
 def stream(video_id: str):
-    # Прямая загрузка потока для треков со Spotify, Apple Music, SoundCloud
     target = video_id if video_id.startswith("http") else f"https://www.youtube.com/watch?v={video_id}"
 
     ydl_opts = {
@@ -153,4 +127,3 @@ def stream(video_id: str):
         return {"url": url}
     except Exception as e:
         return {"error": str(e)}
-                                                           
