@@ -30,19 +30,17 @@ def search(q: str):
     results = []
     seen_ids = set()
 
-    # Надежные площадки без Яндекса: SoundCloud, Bandcamp и глобальная библиотека
+    # Ищем только по защищенным от капч каталогам: SoundCloud и Bandcamp
     search_queries = [
-        ("scsearch40:" + q, "SoundCloud"),
-        ("bcsearch30:" + q, "Bandcamp"),
-        ("ytsearch40:" + q + " audio", "Global Library")
+        (f"scsearch60:{q}", "SoundCloud"),
+        (f"bcsearch40:{q}", "Bandcamp")
     ]
 
     ydl_opts = {
         'extract_flat': True,
         'quiet': True,
         'no_warnings': True,
-        'ignoreerrors': True,
-        'extractor_args': {'youtube': {'player_client': ['android']}}
+        'ignoreerrors': True
     }
 
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -51,9 +49,8 @@ def search(q: str):
                 info = ydl.extract_info(query, download=False)
                 if info and 'entries' in info:
                     for entry in info['entries']:
-                        if entry:
-                            # Для SoundCloud и Bandcamp берем строго полный URL, чтобы избежать ошибок с ID
-                            vid = entry.get('url') if source_type in ["SoundCloud", "Bandcamp"] else (entry.get('id') or entry.get('url'))
+                        if entry and entry.get('url'):
+                            vid = entry.get('url')
                             if vid and str(vid) not in seen_ids:
                                 seen_ids.add(str(vid))
                                 results.append({
@@ -75,25 +72,24 @@ def charts():
     ydl_opts = {
         'extract_flat': True, 
         'quiet': True, 
-        'ignoreerrors': True,
-        'extractor_args': {'youtube': {'player_client': ['android']}}
+        'ignoreerrors': True
     }
     
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info("ytsearch40:global top hits audio", download=False)
+            info = ydl.extract_info("scsearch50:global top hits", download=False)
             if info and 'entries' in info:
                 for entry in info['entries']:
                     if entry and entry.get('url'):
-                        vid = entry.get('id') or entry.get('url')
+                        vid = entry.get('url')
                         if vid and str(vid) not in seen_ids:
                             seen_ids.add(str(vid))
                             tracks.append({
                                 "videoId": vid,
                                 "title": entry.get("title", "Hit"),
-                                "artists": [{"name": entry.get("uploader") or "Global Charts"}],
+                                "artists": [{"name": entry.get("uploader") or "SoundCloud Charts"}],
                                 "thumbnails": get_thumbnail(entry),
-                                "source": "Global Charts"
+                                "source": "SoundCloud"
                             })
     except Exception:
         pass
@@ -101,18 +97,14 @@ def charts():
 
 @app.get("/stream/{video_id:path}")
 def stream(video_id: str):
-    # Если передан полноценный URL (SoundCloud, Bandcamp или прямая ссылка), используем его напрямую
-    if video_id.startswith("http"):
-        target = video_id
-    else:
-        target = f"https://www.youtube.com/watch?v={video_id}"
+    # Прямая загрузка потока без обращения к YouTube
+    target = video_id
 
     ydl_opts = {
         'format': 'bestaudio/best',
         'quiet': True,
         'noplaylist': True,
         'no_warnings': True,
-        'extractor_args': {'youtube': {'player_client': ['android']}}
     }
     
     try:
@@ -125,5 +117,4 @@ def stream(video_id: str):
         
         return {"url": url}
     except Exception as e:
-        return {"error": str(e)}
-            
+        return {"error": str(e)}                                
