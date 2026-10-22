@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from ytmusicapi import YTMusic
 import yt_dlp
+import requests
 
 app = FastAPI()
 
@@ -40,14 +41,14 @@ def search(q: str):
     try:
         ydl_opts = {'extract_flat': True, 'quiet': True}
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            sp_info = ydl.extract_info(f"spsearch5:{q}", download=False)
+            sp_info = ydl.extract_info(f"spsearch4:{q}", download=False)
             if sp_info and 'entries' in sp_info:
                 for entry in sp_info['entries']:
                     if entry and entry.get('url'):
                         results.append({
                             "videoId": entry.get('url'),
                             "title": entry.get("title"),
-                            "artists": [{"name": entry.get("uploader") or entry.get("artist") or "Spotify Artist"}],
+                            "artists": [{"name": entry.get("uploader") or entry.get("artist") or "Spotify"}],
                             "thumbnails": [{"url": entry.get("thumbnail") or ""}],
                             "source": "Spotify"
                         })
@@ -65,7 +66,7 @@ def search(q: str):
                         results.append({
                             "videoId": entry.get('url'),
                             "title": entry.get("title"),
-                            "artists": [{"name": entry.get("uploader") or "Apple Music Artist"}],
+                            "artists": [{"name": entry.get("uploader") or "Apple Music"}],
                             "thumbnails": [{"url": entry.get("thumbnail") or ""}],
                             "source": "Apple Music"
                         })
@@ -83,7 +84,7 @@ def search(q: str):
                         results.append({
                             "videoId": entry.get('url'),
                             "title": entry.get("title"),
-                            "artists": [{"name": entry.get("uploader") or "SoundCloud Artist"}],
+                            "artists": [{"name": entry.get("uploader") or "SoundCloud"}],
                             "thumbnails": [{"url": entry.get("thumbnail") or ""}],
                             "source": "SoundCloud"
                         })
@@ -94,32 +95,40 @@ def search(q: str):
 
 @app.get("/stream/{video_id:path}")
 def stream(video_id: str):
+    # Если это прямая ссылка (Spotify, Apple Music, SoundCloud)
     if video_id.startswith("http"):
-        target = video_id
-    else:
-        target = f"https://music.youtube.com/watch?v={video_id}"
-
-    # Обход защиты YouTube с помощью имитации клиентов
-    ydl_opts = {
-        'format': 'bestaudio/best',
-        'quiet': True,
-        'noplaylist': True,
-        'extractor_args': {
-            'youtube': {
-                'player_client': ['android', 'web']
-            }
+        ydl_opts = {
+            'format': 'bestaudio/best',
+            'quiet': True,
+            'noplaylist': True,
         }
-    }
+        try:
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(video_id, download=False)
+                url = info.get('url')
+            if url:
+                return {"url": url}
+        except Exception as e:
+            return {"error": str(e)}
+
+    # Если это трек с YouTube — получаем поток через публичные защищенные шлюзы (обход капчи)
+    piped_instances = [
+        "https://pipedapi.kavin.rocks",
+        "https://pipedapi.tokhmi.xyz",
+        "https://pipedapi.privacy.com.de"
+    ]
     
-    try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = yt_dlp.YoutubeDL(ydl_opts).extract_info(target, download=False)
-            url = info.get('url')
-        
-        if not url:
-            return {"error": "Не удалось получить аудиопоток"}
-        
-        return {"url": url}
-    except Exception as e:
-        return {"error": str(e)}
-                
+    for instance in piped_instances:
+        try:
+            res = requests.get(f"{instance}/streams/{video_id}", timeout=5)
+            if res.status_code == 200:
+                data = res.json()
+                audio_streams = data.get("audioStreams", [])
+                if audio_streams:
+                    best_stream = max(audio_streams, key=lambda x: x.get("bitrate", 0))
+                    return {"url": best_stream.get("url")}
+        except Exception:
+            continue
+
+    return {"error": "Не удалось получить аудиопоток с YouTube"}
+    
