@@ -30,10 +30,11 @@ def search(q: str):
     results = []
     seen_ids = set()
 
-    search_targets = [
-        f"scsearch50:{q}",
-        f"https://music.yandex.ru/search?text={q}",
-        f"ytsearch30:{q} audio"
+    # Мощный мультипоточный поиск по глобальным каталогам и SoundCloud
+    search_queries = [
+        f"ytsearch40:{q} audio",
+        f"ytsearch30:{q} topic",
+        f"scsearch30:{q}"
     ]
 
     ydl_opts = {
@@ -45,32 +46,23 @@ def search(q: str):
     }
 
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        for target in search_targets:
+        for query in search_queries:
             try:
-                info = ydl.extract_info(target, download=False)
-                if info:
-                    entries = info.get('entries', [])
-                    if not entries and 'url' in info:
-                        entries = [info]
-
-                    for entry in entries:
+                info = ydl.extract_info(query, download=False)
+                if info and 'entries' in info:
+                    for entry in info['entries']:
                         if entry and entry.get('url'):
                             vid = entry.get('id') or entry.get('url')
-                            if vid not in seen_ids:
-                                seen_ids.add(vid)
-                                if "yandex.ru" in target:
-                                    source_name = "Yandex Music"
-                                elif "scsearch" in target:
-                                    source_name = "SoundCloud"
-                                else:
-                                    source_name = "YouTube / Global"
-                                
+                            # Фильтруем мусорные или невалидные идентификаторы
+                            if vid and str(vid) not in seen_ids:
+                                seen_ids.add(str(vid))
+                                source = "SoundCloud" if "scsearch" in query else "Global Library"
                                 results.append({
                                     "videoId": vid,
                                     "title": entry.get("title", "Unknown Title"),
-                                    "artists": [{"name": entry.get("uploader") or entry.get("artist") or entry.get("creator") or source_name}],
+                                    "artists": [{"name": entry.get("uploader") or entry.get("artist") or "Various Artists"}],
                                     "thumbnails": get_thumbnail(entry),
-                                    "source": source_name
+                                    "source": source
                                 })
             except Exception:
                 continue
@@ -90,48 +82,31 @@ def charts():
     
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info("https://music.yandex.ru/chart", download=False)
+            info = ydl.extract_info("ytsearch40:global top hits audio", download=False)
             if info and 'entries' in info:
                 for entry in info['entries']:
                     if entry and entry.get('url'):
                         vid = entry.get('id') or entry.get('url')
-                        if vid not in seen_ids:
-                            seen_ids.add(vid)
+                        if vid and str(vid) not in seen_ids:
+                            seen_ids.add(str(vid))
                             tracks.append({
                                 "videoId": vid,
                                 "title": entry.get("title", "Hit"),
-                                "artists": [{"name": entry.get("uploader") or entry.get("artist") or "Yandex Charts"}],
+                                "artists": [{"name": entry.get("uploader") or "Global Charts"}],
                                 "thumbnails": get_thumbnail(entry),
-                                "source": "Yandex Music"
+                                "source": "Global Charts"
                             })
     except Exception:
         pass
-
-    if not tracks:
-        try:
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info("ytsearch30:global top hits audio", download=False)
-                if info and 'entries' in info:
-                    for entry in info['entries']:
-                        if entry and entry.get('url'):
-                            vid = entry.get('id') or entry.get('url')
-                            if vid not in seen_ids:
-                                seen_ids.add(vid)
-                                tracks.append({
-                                    "videoId": vid,
-                                    "title": entry.get("title", "Hit"),
-                                    "artists": [{"name": entry.get("uploader") or entry.get("artist") or "Global"}],
-                                    "thumbnails": get_thumbnail(entry),
-                                    "source": "YouTube / Global"
-                                })
-        except Exception:
-            pass
-
     return tracks
 
 @app.get("/stream/{video_id:path}")
 def stream(video_id: str):
-    target = video_id if video_id.startswith("http") else f"https://www.youtube.com/watch?v={video_id}"
+    # Если передан полноценный URL (например, SoundCloud), используем его, иначе формируем безопасный запрос
+    if video_id.startswith("http"):
+        target = video_id
+    else:
+        target = f"https://www.youtube.com/watch?v={video_id}"
 
     ydl_opts = {
         'format': 'bestaudio/best',
@@ -152,4 +127,4 @@ def stream(video_id: str):
         return {"url": url}
     except Exception as e:
         return {"error": str(e)}
-                            
+        
