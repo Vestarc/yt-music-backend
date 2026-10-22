@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from ytmusicapi import YTMusic
 import yt_dlp
@@ -8,36 +8,30 @@ app = FastAPI()
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-yt = YTMusic()
+yt = YTMusic()  # Базовый поиск без авторизации[span_1](start_span)[span_1](end_span)
 
-@app.get("/api/search")
-def search_tracks(q: str):
-    try:
-        results = yt.search(q, filter="songs")
-        tracks = []
-        for item in results[:10]:
-            tracks.append({
-                "id": item.get("videoId"),
-                "title": item.get("title"),
-                "artist": item.get("artists", [{}])[0].get("name", "Неизвестный исполнитель"),
-                "cover": item.get("thumbnails", [{}])[-1].get("url"),
-            })
-        return {"tracks": tracks}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+@app.get("/")
+def root():
+    return {"status": "Backend is running!"}
 
-@app.get("/api/stream")
-def get_stream_url(video_id: str):
-    ydl_opts = {'format': 'bestaudio/best', 'quiet': True}
-    try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(f"https://www.youtube.com/watch?v={video_id}", download=False)
-            return {"audio_url": info['url']}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-        
+@app.get("/search")
+def search(q: str):
+    results = yt.search(q, filter="songs")
+    return results[:15]
+
+@app.get("/stream/{video_id}")
+def stream(video_id: str):
+    ydl_opts = {
+        'format': 'bestaudio/best',
+        'quiet': True,
+        'noplaylist': True,
+    }
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        info = ydl.extract_info(f"https://music.youtube.com/watch?v={video_id}", download=False)
+        url = info.get('url')
+    return {"url": url}
+    
