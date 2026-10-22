@@ -1,6 +1,5 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from ytmusicapi import YTMusic
 import yt_dlp
 
 app = FastAPI()
@@ -11,8 +10,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-yt = YTMusic()
 
 def get_thumbnail(entry):
     thumb = entry.get("thumbnail")
@@ -32,98 +29,117 @@ def root():
 def search(q: str):
     results = []
 
-    # 1. YouTube Music (полная выдача)
+    # 1. Spotify (основной каталог)
     try:
-        yt_results = yt.search(q, filter="songs")
-        for item in yt_results:
-            results.append({
-                "videoId": item.get("videoId"),
-                "title": item.get("title"),
-                "artists": item.get("artists", []),
-                "thumbnails": item.get("thumbnails", [{"url": "https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=150&auto=format&fit=crop&q=80"}]),
-                "source": "YouTube"
-            })
+        ydl_opts = {'extract_flat': True, 'quiet': True}
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            sp_info = ydl.extract_info(f"spsearch20:{q}", download=False)
+            if sp_info and 'entries' in sp_info:
+                for entry in sp_info['entries']:
+                    if entry and entry.get('url'):
+                        results.append({
+                            "videoId": entry.get('url'),
+                            "title": entry.get("title"),
+                            "artists": [{"name": entry.get("uploader") or entry.get("artist") or "Spotify"}],
+                            "thumbnails": get_thumbnail(entry),
+                            "source": "Spotify"
+                        })
     except Exception:
         pass
 
-    # 2. Spotify, Apple Music, SoundCloud
-    for service, prefix in [("Spotify", "spsearch15"), ("Apple Music", "amsearch15"), ("SoundCloud", "scsearch15")]:
-        try:
-            ydl_opts = {'extract_flat': True, 'quiet': True}
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info(f"{prefix}:{q}", download=False)
-                if info and 'entries' in info:
-                    for entry in info['entries']:
-                        if entry and entry.get('url'):
-                            results.append({
-                                "videoId": entry.get('url'),
-                                "title": entry.get("title"),
-                                "artists": [{"name": entry.get("uploader") or entry.get("artist") or service, "id": None}],
-                                "thumbnails": get_thumbnail(entry),
-                                "source": service
-                            })
-        except Exception:
-            pass
+    # 2. Apple Music
+    try:
+        ydl_opts = {'extract_flat': True, 'quiet': True}
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            am_info = ydl.extract_info(f"amsearch15:{q}", download=False)
+            if am_info and 'entries' in am_info:
+                for entry in am_info['entries']:
+                    if entry and entry.get('url'):
+                        results.append({
+                            "videoId": entry.get('url'),
+                            "title": entry.get("title"),
+                            "artists": [{"name": entry.get("uploader") or "Apple Music"}],
+                            "thumbnails": get_thumbnail(entry),
+                            "source": "Apple Music"
+                        })
+    except Exception:
+        pass
+
+    # 3. SoundCloud
+    try:
+        ydl_opts = {'extract_flat': True, 'quiet': True}
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            sc_info = ydl.extract_info(f"scsearch15:{q}", download=False)
+            if sc_info and 'entries' in sc_info:
+                for entry in sc_info['entries']:
+                    if entry and entry.get('url'):
+                        results.append({
+                            "videoId": entry.get('url'),
+                            "title": entry.get("title"),
+                            "artists": [{"name": entry.get("uploader") or "SoundCloud"}],
+                            "thumbnails": get_thumbnail(entry),
+                            "source": "SoundCloud"
+                        })
+    except Exception:
+        pass
 
     return results
 
 @app.get("/charts")
 def charts():
+    # Чарты на основе глобальных хитов Spotify
     try:
-        chart_data = yt.get_charts(country="RU")
-        tracks = []
-        items = chart_data.get("videos", {}).get("items", []) or chart_data.get("songs", {}).get("items", [])
-        for item in items:
-            tracks.append({
-                "videoId": item.get("videoId"),
-                "title": item.get("title"),
-                "artists": item.get("artists", []),
-                "thumbnails": item.get("thumbnails", []),
-                "source": "YouTube"
-            })
-        if not tracks:
-            return search("Top hits 2026")
-        return tracks
+        ydl_opts = {'extract_flat': True, 'quiet': True}
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info("spsearch25:global top hits", download=False)
+            tracks = []
+            if info and 'entries' in info:
+                for entry in info['entries']:
+                    if entry and entry.get('url'):
+                        tracks.append({
+                            "videoId": entry.get('url'),
+                            "title": entry.get("title"),
+                            "artists": [{"name": entry.get("uploader") or entry.get("artist") or "Spotify"}],
+                            "thumbnails": get_thumbnail(entry),
+                            "source": "Spotify"
+                        })
+            if tracks:
+                return tracks
     except Exception:
-        return search("Top hits")
-
-@app.get("/artist/{channel_id}")
-def artist_info(channel_id: str):
+        pass
+    
+    # Запасной вариант через SoundCloud
     try:
-        data = yt.get_artist(channel_id)
-        tracks = []
-        for item in data.get("songs", {}).get("results", []):
-            tracks.append({
-                "videoId": item.get("videoId"),
-                "title": item.get("title"),
-                "artists": item.get("artists", [{"name": data.get("name")}]),
-                "thumbnails": item.get("thumbnails", []),
-                "source": "YouTube"
-            })
-        return {
-            "name": data.get("name"), 
-            "thumbnails": data.get("thumbnails", [{"url": "https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=150&auto=format&fit=crop&q=80"}]), 
-            "tracks": tracks
-        }
-    except Exception as e:
-        return {"error": str(e)}
+        ydl_opts = {'extract_flat': True, 'quiet': True}
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info("scsearch20:pop hits", download=False)
+            tracks = []
+            if info and 'entries' in info:
+                for entry in info['entries']:
+                    if entry and entry.get('url'):
+                        tracks.append({
+                            "videoId": entry.get('url'),
+                            "title": entry.get("title"),
+                            "artists": [{"name": entry.get("uploader") or "SoundCloud"}],
+                            "thumbnails": get_thumbnail(entry),
+                            "source": "SoundCloud"
+                        })
+            if tracks:
+                return tracks
+    except Exception:
+        pass
+
+    return []
 
 @app.get("/stream/{video_id:path}")
 def stream(video_id: str):
-    if video_id.startswith("http"):
-        target = video_id
-    else:
-        target = f"https://www.youtube.com/watch?v={video_id}"
+    # Прямая загрузка потока для треков со Spotify, Apple Music, SoundCloud
+    target = video_id if video_id.startswith("http") else f"https://www.youtube.com/watch?v={video_id}"
 
     ydl_opts = {
         'format': 'bestaudio/best',
         'quiet': True,
         'noplaylist': True,
-        'extractor_args': {
-            'youtube': {
-                'player_client': ['ios', 'android']
-            }
-        }
     }
     
     try:
@@ -137,4 +153,4 @@ def stream(video_id: str):
         return {"url": url}
     except Exception as e:
         return {"error": str(e)}
-            
+                                                           
